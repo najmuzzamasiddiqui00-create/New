@@ -1,79 +1,66 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { Landing } from './pages/Landing';
 import { Dashboard } from './pages/Dashboard';
 import { Workspace } from './pages/Workspace';
 import { Billing } from './pages/Billing';
 import { Settings } from './pages/Settings';
+import { Auth, ForgotPassword, UpdatePassword } from './pages/Auth';
 import { User, PlanTier, GenerationHistory } from './types';
-import { Lock } from 'lucide-react';
-
-// --- Fake Auth Component (Internal to save file count) ---
-const AuthPage: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
-  const [isLogin, setIsLogin] = useState(true);
-  const location = useLocation();
-  
-  useEffect(() => {
-    if(location.search.includes('signup')) setIsLogin(false);
-    if(location.search.includes('login')) setIsLogin(true);
-  }, [location]);
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-200 w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">{isLogin ? 'Welcome Back' : 'Create Account'}</h1>
-          <p className="text-slate-500">Enter your details to access ContentFlow.</p>
-        </div>
-        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); onLogin(); }}>
-          {!isLogin && (
-             <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-                <input type="text" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="John Doe" required />
-             </div>
-          )}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input type="email" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="name@company.com" required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-            <input type="password" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="••••••••" required />
-          </div>
-          <button className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
-            {isLogin ? 'Sign In' : 'Sign Up'}
-          </button>
-        </form>
-        <div className="mt-6 text-center text-sm text-slate-600">
-          {isLogin ? "Don't have an account? " : "Already have an account? "}
-          <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-medium hover:underline">
-            {isLogin ? 'Sign Up' : 'Log In'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import { supabase } from './services/supabaseClient';
+import { Loader2 } from 'lucide-react';
 
 const App: React.FC = () => {
-  // Auth State Simulation
   const [user, setUser] = useState<User | null>(null);
   const [history, setHistory] = useState<GenerationHistory[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleLogin = () => {
-    // Simulate fetching user data
+  // Initialize Auth
+  useEffect(() => {
+    const initializeAuth = async () => {
+      // 1. Check active session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        mapSessionToUser(session);
+      } else {
+        setLoading(false);
+      }
+
+      // 2. Listen for auth changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setLoading(false);
+        } else if (session) {
+          mapSessionToUser(session);
+        } else {
+          setLoading(false);
+        }
+      });
+
+      return () => subscription.unsubscribe();
+    };
+
+    initializeAuth();
+  }, []);
+
+  // Helper to map Supabase session to App User
+  const mapSessionToUser = (session: any) => {
     setUser({
-      id: '1',
-      name: 'Demo User',
-      email: 'demo@contentflow.ai',
-      plan: PlanTier.FREE,
+      id: session.user.id,
+      name: session.user.email?.split('@')[0] || 'User',
+      email: session.user.email || '',
+      plan: PlanTier.FREE, // Default for MVP
       credits: 500,
-      usageThisMonth: 1250
+      usageThisMonth: 0
     });
+    setLoading(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
   };
 
@@ -82,50 +69,60 @@ const App: React.FC = () => {
     if (user) {
       setUser({
         ...user,
-        credits: user.credits - 10, // Deduct credits
-        usageThisMonth: user.usageThisMonth + item.content.split(' ').length // Estimate usage
+        credits: user.credits - 10, 
+        usageThisMonth: user.usageThisMonth + item.content.split(' ').length
       });
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   return (
     <Router>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={!user ? <Landing /> : <Navigate to="/dashboard" />} />
-        <Route path="/auth" element={!user ? <AuthPage onLogin={handleLogin} /> : <Navigate to="/dashboard" />} />
+        <Route path="/auth" element={!user ? <Auth /> : <Navigate to="/dashboard" />} />
+        <Route path="/forgot-password" element={!user ? <ForgotPassword /> : <Navigate to="/dashboard" />} />
+        <Route path="/update-password" element={<UpdatePassword />} />
 
-        {/* Protected Routes */}
+        {/* Protected Routes using Middleware Component */}
         <Route path="/dashboard" element={
-          user ? (
-            <Layout user={user} onLogout={handleLogout}>
-              <Dashboard user={user} history={history} />
+          <ProtectedRoute user={user}>
+            <Layout user={user!} onLogout={handleLogout}>
+              <Dashboard user={user!} history={history} />
             </Layout>
-          ) : <Navigate to="/auth" />
+          </ProtectedRoute>
         } />
         
         <Route path="/workspace" element={
-          user ? (
-            <Layout user={user} onLogout={handleLogout}>
-              <Workspace onGenerate={handleGenerate} />
+          <ProtectedRoute user={user}>
+            <Layout user={user!} onLogout={handleLogout}>
+              <Workspace user={user!} onGenerate={handleGenerate} />
             </Layout>
-          ) : <Navigate to="/auth" />
+          </ProtectedRoute>
         } />
 
         <Route path="/billing" element={
-          user ? (
-            <Layout user={user} onLogout={handleLogout}>
-              <Billing user={user} />
+          <ProtectedRoute user={user}>
+            <Layout user={user!} onLogout={handleLogout}>
+              <Billing user={user!} />
             </Layout>
-          ) : <Navigate to="/auth" />
+          </ProtectedRoute>
         } />
 
         <Route path="/settings" element={
-          user ? (
-            <Layout user={user} onLogout={handleLogout}>
-              <Settings user={user} />
+          <ProtectedRoute user={user}>
+            <Layout user={user!} onLogout={handleLogout}>
+              <Settings user={user!} />
             </Layout>
-          ) : <Navigate to="/auth" />
+          </ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to="/" />} />

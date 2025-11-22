@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { ContentType, GenerationHistory } from '../types';
+import { Link } from 'react-router-dom';
+import { ContentType, GenerationHistory, PlanTier, User } from '../types';
 import { generateContent } from '../services/geminiService';
-import { Loader2, Send, Copy, Check } from 'lucide-react';
+import { Loader2, Send, Copy, Check, Lock, AlertTriangle } from 'lucide-react';
 
 interface WorkspaceProps {
+  user: User;
   onGenerate: (item: GenerationHistory) => void;
 }
 
-export const Workspace: React.FC<WorkspaceProps> = ({ onGenerate }) => {
+export const Workspace: React.FC<WorkspaceProps> = ({ user, onGenerate }) => {
   const [type, setType] = useState<ContentType>(ContentType.BLOG);
   const [topic, setTopic] = useState('');
   const [tone, setTone] = useState('Professional');
@@ -15,9 +17,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ onGenerate }) => {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Usage Limit Logic
+  const FREE_WORD_LIMIT = 5000;
+  const isFreePlan = user.plan === PlanTier.FREE;
+  const isOverLimit = isFreePlan && user.usageThisMonth >= FREE_WORD_LIMIT;
+
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!topic) return;
+    if (!topic || isOverLimit) return;
 
     setLoading(true);
     setResult('');
@@ -57,7 +64,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ onGenerate }) => {
           <p className="text-slate-500 text-sm">Configure your AI parameters.</p>
         </div>
 
-        <form onSubmit={handleGenerate} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
+        {/* Usage Limit Warning */}
+        {isOverLimit && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-medium text-amber-900">Monthly Limit Reached</h3>
+              <p className="text-sm text-amber-700 mt-1 mb-2">
+                You've used {user.usageThisMonth.toLocaleString()} / {FREE_WORD_LIMIT.toLocaleString()} words.
+              </p>
+              <Link 
+                to="/billing" 
+                className="text-sm font-semibold text-amber-800 hover:text-amber-900 underline flex items-center gap-1"
+              >
+                Upgrade to Pro <span aria-hidden="true">&rarr;</span>
+              </Link>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleGenerate} className={`bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6 ${isOverLimit ? 'opacity-50 pointer-events-none' : ''}`}>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Content Type</label>
             <select 
@@ -99,11 +125,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ onGenerate }) => {
 
           <button 
             type="submit" 
-            disabled={loading || !topic}
+            disabled={loading || !topic || isOverLimit}
             className="w-full py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
           >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            {loading ? 'Generating...' : 'Generate Content'}
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : isOverLimit ? <Lock className="w-5 h-5" /> : <Send className="w-5 h-5" />}
+            {loading ? 'Generating...' : isOverLimit ? 'Limit Reached' : 'Generate Content'}
           </button>
         </form>
       </div>
