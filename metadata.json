@@ -1,0 +1,5 @@
+{
+  "name": "ContentFlow AI",
+  "description": "A complete SaaS MVP for AI-powered content generation, featuring a landing page, dashboard, billing system, and Gemini-powered workspace.",
+  "requestFramePermissions": []
+}
